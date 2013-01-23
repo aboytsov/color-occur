@@ -1,5 +1,4 @@
-;;; color-occur.el
-;; -*- Mode: Emacs-Lisp -*-
+;;; color-occur.el --- highlight occur buffer and file buffer
 
 ;;  $Id: color-occur.el,v 2.4 2007/12/25 15:54:32 akihisa Exp $
 
