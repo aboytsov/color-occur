@@ -49,7 +49,6 @@
 ;; http://www.bookshelf.jp/elc/moccur-edit.el
 
 ;;; History:
-
 ;; color-occur 1.0 was released to the net on 12/01/2002
 
 ;;; Code:
