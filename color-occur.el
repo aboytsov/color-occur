@@ -54,32 +54,6 @@
 
 ;;; Code:
 
-(defgroup color-occur nil
-  "Customize color-occur"
-  :group 'matching)
-
-(defcustom color-occur-kill-occur-buffer nil
-  "*Non-nil means to kill *Occur* buffer automatically when you exit *Occur* buffer."
-  :group 'color-ooccur
-  :type 'boolean
-  )
-
-
-(defface color-occur-face
-  '((((class color)
-      (background dark))
-     (:background "SkyBlue" :bold t :foreground "Black"))
-    (((class color)
-      (background light))
-     (:background "ForestGreen" :bold t))
-    (t
-     ()))
-  "Face used for list-matching-lines-face"
-  :group 'color-occur
-  )
-
-(setq list-matching-lines-face 'color-occur-face)
-
 ;;; Internal variables
 (defvar before-occur-use-migemo nil)
 (defvar before-occur-point nil)
@@ -103,8 +77,6 @@
 (define-key occur-mode-map "q" 'color-occur-exit)
 (define-key occur-mode-map " " 'color-occur-scroll-up)
 (define-key occur-mode-map "b" 'color-occur-scroll-down)
-(define-key occur-mode-map "\C-m" 'color-occur-mode-goto-occurrence)
-(define-key occur-mode-map "\C-c\C-c" 'color-occur-mode-goto-occurrence)
 
 (defun color-occur-color ()
   "*Highlight the file buffer"
@@ -117,12 +89,12 @@
               (progn
                 (setq ov (make-overlay (match-beginning 0)
                                        (match-end 0)))
-                (overlay-put ov 'face 'color-occur-face)
+                (overlay-put ov 'face 'lazy-highlight)
                 (overlay-put ov 'priority 0)
                 (setq color-occur-overlays (cons ov color-occur-overlays))))
-            (make-local-hook 'after-change-functions)
             (remove-hook 'after-change-functions 'color-occur-remove-overlays)
-            ;;(add-hook 'after-change-functions 'color-occur-remove-overlays)
+            (add-hook 'after-change-functions 'color-occur-remove-overlays
+                      nil t)
             )))))
 
 (defun color-occur-remove-overlays (&optional beg end length)
@@ -163,159 +135,109 @@
 
 (defadvice occur-mode-goto-occurrence
   (after pop-to-buffer activate)
-  (if (featurep 'xemacs)
-      (bury-buffer (get-buffer "*Occur*"))
-    (color-occur-remove-overlays)
-    (if color-occur-kill-occur-buffer
-        (kill-buffer (get-buffer "*Occur*"))
-      (bury-buffer (get-buffer "*Occur*"))))
-;;  (switch-to-buffer before-occur-buffer)
-  (delete-other-windows))
-
-(defun color-occur-mode-goto-occurrence ()
-  (interactive)
-  (occur-mode-goto-occurrence)
-  (if (featurep 'xemacs)
-      (progn
-        (color-occur-remove-overlays)
-        (if color-occur-kill-occur-buffer
-            (kill-buffer (get-buffer "*Occur*"))
-        (bury-buffer (get-buffer "*Occur*"))))))
+  (overlay-put color-occur-underline-overlays 'face nil))
 
 (defun color-occur-exit ()
   "*Exit occur buffer"
   (interactive)
-  (if color-occur-kill-occur-buffer
-      (kill-buffer (get-buffer "*Occur*"))
-    (bury-buffer (get-buffer "*Occur*")))
-
+  (bury-buffer (get-buffer "*Occur*"))
   (switch-to-buffer before-occur-buffer)
   (goto-char before-occur-point)
   (color-occur-remove-overlays)
   (delete-other-windows)
   )
 
-(if (featurep 'xemacs)
-    (progn
-      (defun occur-mode-find-occurrence (line)
-        (switch-to-buffer-other-window before-occur-buffer)
-        (goto-line line)
-        (switch-to-buffer-other-window (get-buffer "*Occur*")))
+(defun color-occur-next (&optional n)
+  "Move to the Nth (default 1) next match in the *Occur* buffer."
+  (interactive "p")
+  (if (not n) (setq n 1))
+  (let ((r) (line nil) pos)
+    (while (> n 0)
+      (if (get-text-property (point) 'occur-target)
+          (forward-char 1))
+      (setq r (next-single-property-change (point) 'occur-target))
+      (if r
+          (progn
+            (goto-char r)
+            (save-excursion
+              (if (re-search-backward "^[ ]*\\([0-9]+\\):" nil t)
+                  (setq line (string-to-int
+                              (buffer-substring (match-beginning 1)
+                                                (match-end 1))))))
+            (setq pos
+                  (condition-case err
+                      (occur-mode-find-occurrence)
+                    (error
+                     nil)))
+            (if pos
+                (pop-to-buffer (marker-buffer pos))
+              (pop-to-buffer occur-buffer))
+            (when pos
+              (goto-char (marker-position pos))
+              (if (not color-occur-underline-overlays)
+                  (setq color-occur-underline-overlays
+                        (make-overlay
+                         (line-beginning-position)
+                         (1+ (line-end-position))
+                         (marker-buffer pos)))
+                (move-overlay color-occur-underline-overlays
+                              (line-beginning-position)
+                              (1+ (line-end-position))
+                              (marker-buffer pos)))
+              (overlay-put color-occur-underline-overlays 'face 'hl-line))
+            (switch-to-buffer-other-window (get-buffer "*Occur*"))
+            )
+        (message "no more matches")
+        (forward-line 1))
+      (setq n (1- n)))
+    ))
 
-      (defun color-occur-next (&optional n)
-        "Move to the Nth (default 1) next match in the *Occur* buffer."
-        (interactive "p")
-        (if (not n) (setq n 1))
-        (forward-line n)
-        (save-excursion
-          (end-of-line)
-          (if (re-search-backward "^[ ]*\\([0-9]+\\):" nil t)
-              (setq line (string-to-int
-                          (buffer-substring (match-beginning 1)
-                                            (match-end 1))))))
+(defun color-occur-prev (&optional n)
+  "Move to the Nth (default 1) previous match in the *Occur* buffer."
+  (interactive "p")
+  (if (not n) (setq n 1))
+  (let ((r))
+    (while (> n 0)
 
-        (occur-mode-find-occurrence line)
+      (setq r (get-text-property (point) 'occur-target))
+      (if r (forward-char -1))
 
-        (if (not color-occur-underline-overlays)
-            (setq color-occur-underline-overlays
-                  (make-overlay
-                   (line-beginning-position) (1+ (line-end-position))))
-          (move-overlay color-occur-underline-overlays
-                        (line-beginning-position) (1+ (line-end-position))))
-        (overlay-put color-occur-underline-overlays 'face 'underline)
-        ;;(switch-to-buffer-other-window (get-buffer "*Occur*"))
-        )
-
-      (defun color-occur-prev (&optional n)
-        "Move to the Nth (default 1) next match in the *Occur* buffer."
-        (interactive "p")
-        (if (not n) (setq n 1))
-        (color-occur-next (- n))
-        ))
-
-  (defun color-occur-next (&optional n)
-    "Move to the Nth (default 1) next match in the *Occur* buffer."
-    (interactive "p")
-    (if (not n) (setq n 1))
-    (let ((r) (line nil) pos)
-      (while (> n 0)
-        (if (get-text-property (point) 'occur-target)
-            (forward-char 1))
-        (setq r (next-single-property-change (point) 'occur-target))
-        (if r
-            (progn
-              (goto-char r)
-              (save-excursion
-                (if (re-search-backward "^[ ]*\\([0-9]+\\):" nil t)
-                    (setq line (string-to-int
-                                (buffer-substring (match-beginning 1)
-                                                  (match-end 1))))))
-              (setq pos
-                    (condition-case err
-                        (occur-mode-find-occurrence)
-                      (error
-                       nil)))
-              (if pos
-                  (pop-to-buffer (marker-buffer pos))
-                (pop-to-buffer occur-buffer))
-              (when pos
-                (goto-char (marker-position pos))
-                (if (not color-occur-underline-overlays)
-                    (setq color-occur-underline-overlays
-                          (make-overlay
-                           (line-beginning-position) (1+ (line-end-position)) (marker-buffer pos)))
-                  (move-overlay color-occur-underline-overlays
-                                (line-beginning-position) (1+ (line-end-position)) (marker-buffer pos)))
-                (overlay-put color-occur-underline-overlays 'face 'underline))
-              (switch-to-buffer-other-window (get-buffer "*Occur*"))
-              )
-          (message "no more matches")
-          (forward-line 1))
-        (setq n (1- n)))
-      ))
-
-  (defun color-occur-prev (&optional n)
-    "Move to the Nth (default 1) previous match in the *Occur* buffer."
-    (interactive "p")
-    (if (not n) (setq n 1))
-    (let ((r))
-      (while (> n 0)
-
-        (setq r (get-text-property (point) 'occur-target))
-        (if r (forward-char -1))
-
-        (setq r (previous-single-property-change (point) 'occur-target))
-        (if r
-            (progn
-              (goto-char (- r 1))
-              (save-excursion
-                (end-of-line)
-                (if (re-search-backward "^[ ]*\\([0-9]+\\):" nil t)
-                    (setq line (string-to-int
-                                (buffer-substring (match-beginning 1)
-                                                  (match-end 1))))))
-              (setq pos
-                    (condition-case err
-                        (occur-mode-find-occurrence)
-                      (error
-                       nil)))
-              (if pos
-                  (pop-to-buffer (marker-buffer pos))
-                (pop-to-buffer occur-buffer))
-              (when pos
-                (goto-char (marker-position pos))
-                (if (not color-occur-underline-overlays)
-                    (setq color-occur-underline-overlays
-                          (make-overlay
-                           (line-beginning-position) (1+ (line-end-position)) (marker-buffer pos)))
-                  (move-overlay color-occur-underline-overlays
-                                (line-beginning-position) (1+ (line-end-position)) (marker-buffer pos)))
-                (overlay-put color-occur-underline-overlays 'face 'underline))
-              (switch-to-buffer-other-window (get-buffer "*Occur*"))
-              )
-          (message "no earlier matches")
-          (forward-line -1))
-        (setq n (1- n))))))
+      (setq r (previous-single-property-change (point) 'occur-target))
+      (if r
+          (progn
+            (goto-char (- r 1))
+            (save-excursion
+              (end-of-line)
+              (if (re-search-backward "^[ ]*\\([0-9]+\\):" nil t)
+                  (setq line (string-to-int
+                              (buffer-substring (match-beginning 1)
+                                                (match-end 1))))))
+            (setq pos
+                  (condition-case err
+                      (occur-mode-find-occurrence)
+                    (error
+                     nil)))
+            (if pos
+                (pop-to-buffer (marker-buffer pos))
+              (pop-to-buffer occur-buffer))
+            (when pos
+              (goto-char (marker-position pos))
+              (if (not color-occur-underline-overlays)
+                  (setq color-occur-underline-overlays
+                        (make-overlay
+                         (line-beginning-position)
+                         (1+ (line-end-position))
+                         (marker-buffer pos)))
+                (move-overlay color-occur-underline-overlays
+                              (line-beginning-position)
+                              (1+ (line-end-position))
+                              (marker-buffer pos)))
+              (overlay-put color-occur-underline-overlays 'face 'hl-line))
+            (switch-to-buffer-other-window (get-buffer "*Occur*"))
+            )
+        (message "no earlier matches")
+        (forward-line -1))
+      (setq n (1- n)))))
 
 (defun color-occur-scroll-down ()
   (interactive)
